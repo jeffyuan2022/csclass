@@ -2,26 +2,26 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>My App — Login</title>
+  <title>My App — Auth</title>
 
   <!-- FirebaseUI styles -->
-  <link rel="stylesheet"
-        href="https://www.gstatic.com/firebasejs/ui/6.1.0/firebase-ui-auth.css" />
+  <link rel="stylesheet" href="https://www.gstatic.com/firebasejs/ui/6.1.0/firebase-ui-auth.css" />
 
-  <!-- Firebase compat SDKs (namespaced) -->
+  <!-- Firebase compat SDKs (needed for FirebaseUI) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-auth-compat.js"></script>
 
-  <!-- FirebaseUI (requires compat) -->
+  <!-- FirebaseUI (works with compat) -->
   <script src="https://www.gstatic.com/firebasejs/ui/6.1.0/firebase-ui-auth.js"></script>
 
   <style>
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; }
-    .card { border: 1px solid #eee; border-radius: 12px; padding: 16px 20px; box-shadow: 0 2px 10px rgba(0,0,0,.04); max-width: 520px; }
+    .card { border: 1px solid #eee; border-radius: 12px; padding: 16px 20px; box-shadow: 0 2px 10px rgba(0,0,0,.04); max-width: 560px; }
     #signed-in { display: none; align-items: center; gap: 12px; }
     #photo { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; display:none; }
     #signout { padding: 8px 12px; border-radius: 10px; border: 1px solid #ddd; background: #fafafa; cursor: pointer; }
     #signout:hover { background: #f0f0f0; }
+    #disabled { display:none; color:#b00; margin-top:8px; }
   </style>
 </head>
 <body>
@@ -30,86 +30,82 @@
   <div class="card">
     <!-- Signed-in view -->
     <div id="signed-in">
-      <img id="photo" alt="Profile photo" />
+      <img id="photo" alt="Profile" />
       <div id="welcome"></div>
       <button id="signout" title="Sign out">Sign out</button>
     </div>
 
     <!-- FirebaseUI login container (shown when signed out) -->
     <div id="firebaseui-auth-container"></div>
+
+    <!-- Message when config is missing (e.g., on GitHub Pages) -->
+    <div id="disabled">Authentication is disabled on this public demo.</div>
   </div>
 
   <script>
-    // --- Your Firebase config (ok to use with compat) ---
-    const firebaseConfig = {
-      apiKey: "AIzaSyBb_E6HLIvjFsLLdQgk2DsM90L6WhqEMz8",
-      authDomain: "csclass-38902.firebaseapp.com",
-      projectId: "csclass-38902",
-      storageBucket: "csclass-38902.firebasestorage.app",
-      messagingSenderId: "627475688973",
-      appId: "1:627475688973:web:ca60ebb67954c1a9ebaf44",
-      measurementId: "G-GX4MW3QY49"
-    };
+    // Try to load the local-only config (exists in localhost dev, missing on GitHub Pages).
+    fetch('/firebase-config.local.json', { cache: 'no-store' })
+      .then(r => {
+        if (!r.ok) throw new Error('No local config present');
+        return r.json();
+      })
+      .then(firebaseConfig => {
+        // --- Initialize Firebase (compat) ---
+        firebase.initializeApp(firebaseConfig);
 
-    // Initialize Firebase (compat)
-    firebase.initializeApp(firebaseConfig);
+        // --- FirebaseUI config ---
+        const uiConfig = {
+          signInFlow: 'popup',
+          signInOptions: [
+            firebase.auth.GoogleAuthProvider.PROVIDER_ID,
+            firebase.auth.EmailAuthProvider.PROVIDER_ID
+          ],
+          callbacks: {
+            signInSuccessWithAuthResult: function(authResult) {
+              renderSignedIn(authResult.user);
+              document.getElementById('firebaseui-auth-container').style.display = 'none';
+              return false; // stay on this page
+            }
+          },
+          tosUrl: '/tos.html',
+          privacyPolicyUrl: '/privacy.html'
+        };
 
-    // Build the FirebaseUI config
-    const uiConfig = {
-      signInFlow: 'popup',
-      // Where to go after sign-in if you want a redirect. We keep it on-page here.
-      // signInSuccessUrl: '/', 
-      signInOptions: [
-        firebase.auth.GoogleAuthProvider.PROVIDER_ID,
-        firebase.auth.EmailAuthProvider.PROVIDER_ID,
-        // Add the providers you actually need. The ones below require extra console setup:
-        // firebase.auth.FacebookAuthProvider.PROVIDER_ID,
-        // firebase.auth.TwitterAuthProvider.PROVIDER_ID,
-        // firebase.auth.GithubAuthProvider.PROVIDER_ID,
-        // firebase.auth.PhoneAuthProvider.PROVIDER_ID,
-        // firebaseui.auth.AnonymousAuthProvider.PROVIDER_ID,
-      ],
-      tosUrl: '/tos.html',
-      privacyPolicyUrl: '/privacy.html',
-      callbacks: {
-        // Return false to stay on the page (no redirect)
-        signInSuccessWithAuthResult: function(authResult, redirectUrl) {
-          renderSignedIn(authResult.user);
-          document.getElementById('firebaseui-auth-container').style.display = 'none';
-          return false;
+        const ui = firebaseui.auth.AuthUI.getInstance() || new firebaseui.auth.AuthUI(firebase.auth());
+
+        // Toggle UI based on auth state
+        firebase.auth().onAuthStateChanged(function(user) {
+          if (user) {
+            renderSignedIn(user);
+            document.getElementById('firebaseui-auth-container').style.display = 'none';
+          } else {
+            document.getElementById('signed-in').style.display = 'none';
+            document.getElementById('disabled').style.display = 'none';
+            document.getElementById('firebaseui-auth-container').style.display = 'block';
+            ui.start('#firebaseui-auth-container', uiConfig);
+          }
+        });
+
+        // Sign out
+        document.getElementById('signout').addEventListener('click', function() {
+          firebase.auth().signOut();
+        });
+
+        function renderSignedIn(user) {
+          const nameOrEmail = user.displayName || user.email || 'Anonymous';
+          document.getElementById('welcome').textContent = `Signed in as ${nameOrEmail}`;
+          const photo = document.getElementById('photo');
+          if (user.photoURL) { photo.src = user.photoURL; photo.style.display = 'inline-block'; }
+          else { photo.style.display = 'none'; }
+          document.getElementById('signed-in').style.display = 'flex';
         }
-      }
-    };
-
-    // Reuse an existing AuthUI instance if it already exists.
-    const ui = firebaseui.auth.AuthUI.getInstance() || new firebaseui.auth.AuthUI(firebase.auth());
-
-    // Auth state listener toggles between UI and signed-in view
-    firebase.auth().onAuthStateChanged(function(user) {
-      if (user) {
-        renderSignedIn(user);
+      })
+      .catch(() => {
+        // No config found (e.g., on GitHub Pages) – disable auth gracefully
         document.getElementById('firebaseui-auth-container').style.display = 'none';
-      } else {
         document.getElementById('signed-in').style.display = 'none';
-        document.getElementById('firebaseui-auth-container').style.display = 'block';
-        ui.start('#firebaseui-auth-container', uiConfig);
-      }
-    });
-
-    // Sign-out button
-    document.getElementById('signout').addEventListener('click', function() {
-      firebase.auth().signOut();
-    });
-
-    // Helper to render the signed-in area
-    function renderSignedIn(user) {
-      const nameOrEmail = user.displayName || user.email || 'Anonymous';
-      document.getElementById('welcome').textContent = `Signed in as ${nameOrEmail}`;
-      const photo = document.getElementById('photo');
-      if (user.photoURL) { photo.src = user.photoURL; photo.style.display = 'inline-block'; }
-      else { photo.style.display = 'none'; }
-      document.getElementById('signed-in').style.display = 'flex';
-    }
+        document.getElementById('disabled').style.display = 'block';
+      });
   </script>
 </body>
 </html>
